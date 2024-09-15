@@ -1,10 +1,18 @@
 [package]
-name = "rust_zero2prod"
+name = "zero2prod"
 version = "0.1.0"
 edition = "2021"
 author = "engr-uba -- Stephen Ezekwem <stephen.ezekwem@ezektec.com>"
 
+[lib]
+path = "src/lib.rs"
+
+[[bin]]
+path = "src/main.rs"
+name = "zero2prod"
+
 [dependencies]
+reqwest = "0.12.7"
 actix-web = "4.9.0"
 tokio = { version = "1.40.0", features = ["macros", "rt-multi-thread"] }
 
