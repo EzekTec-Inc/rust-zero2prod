@@ -1,7 +1,7 @@
 [package]
 name = "zero2prod"
 version = "0.1.0"
-author = "engr. Stephen Ezekwem <stephen.ezekwem@ezektec.com>"
+author = [ "engr. Stephen Ezekwem <stephen.ezekwem@ezektec.com>" ]
 edition = "2021"
 
 [lib]
