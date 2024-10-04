@@ -13,6 +13,7 @@ pub struct TestApp {
 // Launch our application in the background ~somehow~
 async fn spawn_app() -> TestApp {
     let listener = TcpListener::bind("127.0.0.1:0").expect("Failed to bind random port");
+    // We retrieve the port assigned to us by the OS
     let port = listener.local_addr().unwrap().port();
     let address = format!("http://127.0.0.1:{}", port);
 
@@ -90,9 +91,9 @@ async fn subscribe_returns_a_200_for_valid_form_data() {
     // Arrange
     let app = spawn_app().await;
     let client = reqwest::Client::new();
-    let post_path = format!("{}/subscriptions", &app.address);
     let body = "name=le%20guin&email=ursula_le_guin%40gmail.com";
     // Act
+    let post_path = format!("{}/subscriptions", &app.address);
     let response = client
         .post(&post_path)
         .header("Content-Type", "application/x-www-form-urlencoded")

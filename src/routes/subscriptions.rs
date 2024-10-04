@@ -1,12 +1,17 @@
-use actix_web::{body::BoxBody, web, HttpResponse};
-//use chrono::Utc;
+#![allow(unused_imports)]
+use actix_web::{
+    web::{self, UrlEncoded},
+    HttpResponse,
+};
+use chrono::Utc;
 use sqlx::PgPool;
+use tracing::Instrument;
 use uuid::Uuid;
 
 #[derive(serde::Deserialize)]
 pub struct FormData {
-    email: String,
-    name: String,
+    pub email: String,
+    pub name: String,
 }
 
 /// Extract form data using serde.
@@ -19,25 +24,60 @@ fn index(form: web::Form<FormData>) -> String {
     //    BoxBody::new(format!("Welcome {}!", form.0.name)),
     //)
 }
-pub async fn subscribe(_form: web::Form<FormData>, pool: web::Data<PgPool>) -> HttpResponse {
-    HttpResponse::Ok().finish()
-    //match sqlx::query!(
-    //    r#"
-    //INSERT INTO subscriptions (id, email, name, subscribed_at)
-    //VALUES ($1, $2, $3, $4)
-    //    "#,
-    //    Uuid::new_v4(),
-    //    form.email,
-    //    form.name,
-    //    chrono::Utc::now()
-    //)
-    //.execute(pool.as_ref())
-    //.await
-    //{
-    //    Ok(_) => HttpResponse::Ok().finish(),
-    //    Err(e) => {
-    //        println!("Failed to execute query: {}", e);
-    //        HttpResponse::InternalServerError().finish()
-    //    }
-    //}
+pub async fn subscribe(form: web::Form<FormData>, pool: web::Data<PgPool>) -> HttpResponse {
+    // Let's generate a random unique identifier.
+    let request_id = Uuid::new_v4();
+    let request_span = tracing::info_span!(
+        "Adding a new subscriber.",
+        %request_id,
+        subscriber_email = %form.email,
+        subscriber_name = %form.name
+    );
+
+    let _request_span_guard = request_span.enter();
+
+    // We don't call `.enter()` on query_span!
+    // `.instrument` takes care of it at the right moments
+    // in the query future lifetime
+    let query_span = tracing::info_span!("Saving new subscriber details to the database.",);
+
+    // tracing::info!(
+    //     "request_id {} - Saving new subscriber details to the database.",
+    //     request_id
+    // );
+    match sqlx::query!(
+        r#"
+    INSERT INTO subscriptions (id, email, name, subscribed_at)
+    VALUES ($1, $2, $3, $4)
+        "#,
+        Uuid::new_v4(),
+        form.email,
+        form.name,
+        Utc::now()
+    )
+    // We use `get_ref` to get an immutable reference to the `PgPool` wrapped by `web::Data`.
+    .execute(pool.get_ref())
+    // First we attach the instrumentation, then we `.await` it
+    .instrument(query_span)
+    .await
+    {
+        Ok(_) => {
+            // tracing::info!(
+            //     "request_id {} - New subscriber details have been saved.",
+            //     request_id
+            // );
+            HttpResponse::Ok().finish()
+        }
+        Err(e) => {
+            // Using `println!` to capture information about the error
+            // in case things don't work out as expected.
+            tracing::error!(
+                "request_id {} - Failed to execute query: {:?}",
+                request_id,
+                e
+            );
+
+            HttpResponse::InternalServerError().finish()
+        }
+    }
 }
