@@ -24,7 +24,29 @@ fn index(form: web::Form<FormData>) -> String {
     //    BoxBody::new(format!("Welcome {}!", form.0.name)),
     //)
 }
+#[allow(clippy::async_yields_async)]
+#[tracing::instrument(
+    name = "Adding a new subscriber", 
+    skip(form, pool),
+    fields(
+        subscriber_email = &form.email,
+        subscriber_name = &form.name,
+    )
+    )]
 pub async fn subscribe(form: web::Form<FormData>, pool: web::Data<PgPool>) -> HttpResponse {
+    match insert_subscriber(pool, form).await {
+        Ok(_) => HttpResponse::Ok().finish(),
+        Err(_) => HttpResponse::InternalServerError().finish(),
+    }
+}
+#[tracing::instrument(
+    name = "Saving new subscriber details to the database",
+    skip(form, pool)
+)]
+pub async fn insert_subscriber(
+    pool: web::Data<PgPool>,
+    form: web::Form<FormData>,
+) -> Result<(), HttpResponse> {
     // Let's generate a random unique identifier.
     let request_id = Uuid::new_v4();
     let request_span = tracing::info_span!(
@@ -66,7 +88,7 @@ pub async fn subscribe(form: web::Form<FormData>, pool: web::Data<PgPool>) -> Ht
             //     "request_id {} - New subscriber details have been saved.",
             //     request_id
             // );
-            HttpResponse::Ok().finish()
+            HttpResponse::Ok().finish();
         }
         Err(e) => {
             // Using `println!` to capture information about the error
@@ -77,7 +99,9 @@ pub async fn subscribe(form: web::Form<FormData>, pool: web::Data<PgPool>) -> Ht
                 e
             );
 
-            HttpResponse::InternalServerError().finish()
+            HttpResponse::InternalServerError().finish();
         }
     }
+
+    Ok(())
 }
