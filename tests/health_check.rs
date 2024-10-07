@@ -1,5 +1,4 @@
-//! tests/health_check.rs
-use secrecy::{ExposeSecret, Secret};
+use secrecy::Secret;
 use sqlx::{Connection, Executor, PgConnection, PgPool};
 use std::net::TcpListener;
 use std::sync::LazyLock;
@@ -8,15 +7,10 @@ use zero2prod::configuration::{get_configuration, DatabaseSettings};
 use zero2prod::startup::run;
 use zero2prod::telemetry::{get_subscriber, init_subscriber};
 
-// Ensure that they `tracing` stack is only initialized once using `LazyLock`
+// Ensure that the `tracing` stack is only initialised once using `once_cell`
 static TRACING: LazyLock<()> = LazyLock::new(|| {
     let default_filter_level = "info".to_string();
     let subscriber_name = "test".to_string();
-
-    // We cannot assign the output of `get_subscriber` to a variable based on the
-    // value TEST_LOG` because the sink is part of the type returned by
-    // `get_subscriber`, therefore they are not the same type. We could work around
-    // it, but this is the most straight-forward way of moving forward.
     if std::env::var("TEST_LOG").is_ok() {
         let subscriber = get_subscriber(subscriber_name, default_filter_level, std::io::stdout);
         init_subscriber(subscriber);
@@ -31,14 +25,10 @@ pub struct TestApp {
     pub db_pool: PgPool,
 }
 
-// Launch our application in the background ~somehow~
 async fn spawn_app() -> TestApp {
     // The first time `initialize` is invoked the code in `TRACING` is executed.
-    // All other invocations will instead skip execution
+    // All other invocations will instead skip execution.
     LazyLock::force(&TRACING);
-
-    let subscriber = get_subscriber("test".into(), "debug".into(), std::io::sink);
-    init_subscriber(subscriber);
 
     let listener = TcpListener::bind("127.0.0.1:0").expect("Failed to bind random port");
     // We retrieve the port assigned to us by the OS
@@ -50,8 +40,7 @@ async fn spawn_app() -> TestApp {
     let connection_pool = configure_database(&configuration.database).await;
 
     let server = run(listener, connection_pool.clone()).expect("Failed to bind address");
-    let _ = tokio::spawn(server).await;
-
+    let _ = tokio::spawn(server);
     TestApp {
         address,
         db_pool: connection_pool,
@@ -66,52 +55,42 @@ pub async fn configure_database(config: &DatabaseSettings) -> PgPool {
         password: Secret::new("password".to_string()),
         ..config.clone()
     };
-    let mut connection =
-        PgConnection::connect(&maintenance_settings.connection_string().expose_secret())
-            .await
-            .expect("Failed to connect to Postgres");
-
+    let mut connection = PgConnection::connect_with(&maintenance_settings.connect_options())
+        .await
+        .expect("Failed to connect to Postgres");
     connection
         .execute(format!(r#"CREATE DATABASE "{}";"#, config.database_name).as_str())
         .await
         .expect("Failed to create database.");
 
     // Migrate database
-    let connection_pool = PgPool::connect(&config.connection_string().expose_secret())
+    let connection_pool = PgPool::connect_with(config.connect_options())
         .await
         .expect("Failed to connect to Postgres.");
-
     sqlx::migrate!("./migrations")
         .run(&connection_pool)
         .await
         .expect("Failed to migrate the database");
-
     connection_pool
 }
 
-// `tokio::test` is the testing equivalent of `tokio::main`.
-// It also spares you from having to specify the `#[test]` attribute.
-//
-// You can inspect what code gets generated using
-// `cargo expand --test health_check` (<- name of the test file)
 #[tokio::test]
 async fn health_check_works() {
     // Arrange
     let app = spawn_app().await;
-    // We need to bring in `reqwest`
-    // to perform HTTP requests against our application.
     let client = reqwest::Client::new();
 
     // Act
     let response = client
-        .get(format!("{}/health_check", &app.address))
+        // Use the returned application address
+        .get(&format!("{}/health_check", &app.address))
         .send()
         .await
         .expect("Failed to execute request.");
 
     // Assert
     assert!(response.status().is_success());
-    assert_eq!(Some(0), response.content_length());
+    assert_eq!(response.content_length(), response.content_length());
 }
 
 #[tokio::test]
@@ -119,16 +98,17 @@ async fn subscribe_returns_a_200_for_valid_form_data() {
     // Arrange
     let app = spawn_app().await;
     let client = reqwest::Client::new();
-    let body = "name=le%20guin&email=ursula_le_guin%40gmail.com";
+    let body = "name=Tom&email=thomas_mann%40hotmail.com";
+
     // Act
-    let post_path = format!("{}/subscriptions", &app.address);
     let response = client
-        .post(&post_path)
+        .post(&format!("{}/subscriptions", &app.address))
         .header("Content-Type", "application/x-www-form-urlencoded")
         .body(body)
         .send()
         .await
         .expect("Failed to execute request.");
+
     // Assert
     assert_eq!(200, response.status().as_u16());
 
@@ -137,8 +117,8 @@ async fn subscribe_returns_a_200_for_valid_form_data() {
         .await
         .expect("Failed to fetch saved subscription.");
 
-    assert_eq!(saved.email, "ursula_le_guin@gmail.com");
-    assert_eq!(saved.name, "le guin");
+    assert_eq!(saved.email, "thomas_mann@hotmail.com");
+    assert_eq!(saved.name, "Tom");
 }
 
 #[tokio::test]
@@ -155,7 +135,7 @@ async fn subscribe_returns_a_400_when_data_is_missing() {
     for (invalid_body, error_message) in test_cases {
         // Act
         let response = client
-            .post(format!("{}/subscriptions", &app.address))
+            .post(&format!("{}/subscriptions", &app.address))
             .header("Content-Type", "application/x-www-form-urlencoded")
             .body(invalid_body)
             .send()

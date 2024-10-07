@@ -1,4 +1,6 @@
 /target
+/configuration
+configuration.yaml
 .env
 .idea
 tags
