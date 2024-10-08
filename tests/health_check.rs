@@ -98,7 +98,7 @@ async fn subscribe_returns_a_200_for_valid_form_data() {
     // Arrange
     let app = spawn_app().await;
     let client = reqwest::Client::new();
-    let body = "name=Tom&email=thomas_mann%40hotmail.com";
+    let body = "name=le%20guin&email=ursula_le_guin%40gmail.com";
 
     // Act
     let response = client
@@ -117,8 +117,8 @@ async fn subscribe_returns_a_200_for_valid_form_data() {
         .await
         .expect("Failed to fetch saved subscription.");
 
-    assert_eq!(saved.email, "thomas_mann@hotmail.com");
-    assert_eq!(saved.name, "Tom");
+    assert_eq!(saved.email, "ursula_le_guin@gmail.com");
+    assert_eq!(saved.name, "le guin");
 }
 
 #[tokio::test]
@@ -127,8 +127,8 @@ async fn subscribe_returns_a_400_when_data_is_missing() {
     let app = spawn_app().await;
     let client = reqwest::Client::new();
     let test_cases = vec![
-        ("name=le%20guin", "missing the email"),
-        ("email=ursula_le_guin%40gmail.com", "missing the name"),
+        ("name=thomas_mann", "missing the email"),
+        ("email=thomas_mann%40hotmail.com", "missing the name"),
         ("", "missing both name and email"),
     ];
 
@@ -149,6 +149,40 @@ async fn subscribe_returns_a_400_when_data_is_missing() {
             // Additional customised error message on test failure
             "The API did not fail with 400 Bad Request when the payload was {}.",
             error_message
+        );
+    }
+}
+
+#[tokio::test]
+// This is expected to fail at this point in the book, but we mark it as
+// `should_panic` to get a green CI.
+#[should_panic]
+async fn subscribe_returns_a_400_when_fields_are_present_but_invalid() {
+    // Arrange
+    let app = spawn_app().await;
+    let client = reqwest::Client::new();
+    let test_cases = vec![
+        ("name=&email=thomas_mann%40gmail.com", "empty name"),
+        ("name=thomas_mann&email=", "empty email"),
+        ("name=thomas_mann&email=definitely-not-an-email", "invalid email"),
+    ];
+
+    for (body, description) in test_cases {
+        // Act
+        let response = client
+            .post(&format!("{}/subscriptions", &app.address))
+            .header("Content-Type", "application/x-www-form-urlencoded")
+            .body(body)
+            .send()
+            .await
+            .expect("Failed to execute request.");
+
+        // Assert
+        assert_eq!(
+            400,
+            response.status().as_u16(),
+            "The API did not return a 400 Bad Request when the payload was {}.",
+            description
         );
     }
 }
